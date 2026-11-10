@@ -17,6 +17,18 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.material3.FilledTonalIconButton
+import androidx.compose.material3.MaterialShapes
+import androidx.compose.material3.toShape
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -208,38 +220,72 @@ private fun App() {
     }
 
     MaterialExpressiveTheme(colorScheme = schemeFor(seed, dark).animated(), motionScheme = MotionScheme.expressive()) {
-        val scroll = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+        val applyAction: () -> Unit = {
+            val bmp = bitmap
+            if (bmp != null) {
+                applyState = ApplyState.Working; error = null
+                scope.launch {
+                    val r = withContext(Dispatchers.IO) {
+                        runCatching {
+                            val flags = when (target) {
+                                0 -> WallpaperManager.FLAG_SYSTEM
+                                1 -> WallpaperManager.FLAG_LOCK
+                                else -> WallpaperManager.FLAG_SYSTEM or WallpaperManager.FLAG_LOCK
+                            }
+                            ThemeEngine.setWallpaper(context, bmp, flags)
+                            ThemeEngine.applyColors(seed)
+                        }
+                    }
+                    applyState = if (r.isSuccess) ApplyState.Done else ApplyState.Failed
+                    error = r.exceptionOrNull()?.let { (it.cause ?: it).message ?: it.javaClass.simpleName }
+                }
+            }
+        }
+        val pick = { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }
         Scaffold(
-            modifier = Modifier.nestedScroll(scroll.nestedScrollConnection),
             containerColor = MaterialTheme.colorScheme.surface,
-            topBar = {
-                LargeTopAppBar(
-                    title = { Text("Wallhue", fontWeight = FontWeight.SemiBold) },
-                    scrollBehavior = scroll,
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = MaterialTheme.colorScheme.surface,
-                        scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainer,
-                    ),
-                )
+            bottomBar = {
+                Column(
+                    Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainer)
+                        .navigationBarsPadding().padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    AnimatedVisibility(error != null) {
+                        Text(error.orEmpty(), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                    }
+                    ApplyButton(applyState, bitmap != null && shiz == Shiz.Ready && applyState != ApplyState.Working, applyAction)
+                }
             },
         ) { pad ->
             Column(
-                Modifier.padding(pad).fillMaxSize().verticalScroll(rememberScrollState())
-                    .padding(horizontal = 16.dp).navigationBarsPadding(),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
+                Modifier.fillMaxSize().verticalScroll(rememberScrollState())
+                    .padding(bottom = pad.calculateBottomPadding()).statusBarsPadding()
+                    .padding(horizontal = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(20.dp),
             ) {
-                ShizukuCard(shiz, onShizuku)
-                Preview(bitmap) { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }
-
+                Header(
+                    shiz, onShizuku,
+                    onReset = {
+                        scope.launch {
+                            val r = withContext(Dispatchers.IO) { runCatching { ThemeEngine.resetColors() } }
+                            error = r.exceptionOrNull()?.let { (it.cause ?: it).message }
+                            applyState = ApplyState.Idle
+                        }
+                    },
+                )
+                AnimatedVisibility(shiz != Shiz.Ready, enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
+                    ShizukuCard(shiz, onShizuku)
+                }
+                Preview(bitmap, pick)
                 AnimatedVisibility(bitmap != null, enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
-                    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                        Section("Seed color") {
-                            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Column(verticalArrangement = Arrangement.spacedBy(20.dp)) {
+                        Section("Colors from wallpaper") {
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 seeds.forEachIndexed { i, c -> SeedDot(Color(c), i == selected) { selected = i; applyState = ApplyState.Idle } }
                             }
                         }
                         Section("Palette") { PaletteStrip(seed, dark) }
-                        Section("Apply wallpaper to") {
+                        Section("Set wallpaper on") {
                             SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
                                 listOf("Home", "Lock", "Both").forEachIndexed { i, label ->
                                     SegmentedButton(
@@ -251,54 +297,32 @@ private fun App() {
                         }
                     }
                 }
-
-                ApplyButton(
-                    state = applyState,
-                    enabled = bitmap != null && shiz == Shiz.Ready && applyState != ApplyState.Working,
-                ) {
-                    val bmp = bitmap ?: return@ApplyButton
-                    applyState = ApplyState.Working; error = null
-                    scope.launch {
-                        val r = withContext(Dispatchers.IO) {
-                            runCatching {
-                                val flags = when (target) {
-                                    0 -> WallpaperManager.FLAG_SYSTEM
-                                    1 -> WallpaperManager.FLAG_LOCK
-                                    else -> WallpaperManager.FLAG_SYSTEM or WallpaperManager.FLAG_LOCK
-                                }
-                                ThemeEngine.setWallpaper(context, bmp, flags)
-                                ThemeEngine.applyColors(seed)
-                            }
-                        }
-                        applyState = if (r.isSuccess) ApplyState.Done else ApplyState.Failed
-                        error = r.exceptionOrNull()?.let { (it.cause ?: it).message ?: it.javaClass.simpleName }
-                    }
-                }
-
-                AnimatedVisibility(error != null) {
-                    Text(error.orEmpty(), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-                }
-
-                TextButton(
-                    onClick = {
-                        scope.launch {
-                            val r = withContext(Dispatchers.IO) { runCatching { ThemeEngine.resetColors() } }
-                            error = r.exceptionOrNull()?.let { (it.cause ?: it).message }
-                            applyState = ApplyState.Idle
-                        }
-                    },
-                    enabled = shiz == Shiz.Ready,
-                    modifier = Modifier.align(Alignment.CenterHorizontally),
-                ) {
-                    Icon(Icons.Rounded.Restore, null); Spacer(Modifier.width(8.dp)); Text("Reset app colors")
-                }
-                Spacer(Modifier.height(24.dp))
+                Spacer(Modifier.height(8.dp))
             }
         }
     }
 
     LaunchedEffect(applyState) {
         if (applyState == ApplyState.Done || applyState == ApplyState.Failed) { delay(2600); applyState = ApplyState.Idle }
+    }
+}
+
+@Composable
+private fun Header(state: Shiz, onShizuku: () -> Unit, onReset: () -> Unit) {
+    Row(Modifier.fillMaxWidth().padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text("Wallhue", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold)
+            Text("Wallpaper colors for stock apps", style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        val ready = state == Shiz.Ready
+        val dot by animateColorAsState(
+            if (ready) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error, label = "d",
+        )
+        FilledTonalIconButton(onClick = onShizuku) {
+            Box(Modifier.size(12.dp).clip(CircleShape).background(dot))
+        }
+        FilledTonalIconButton(onClick = onReset, enabled = ready) { Icon(Icons.Rounded.Restore, "Reset app colors") }
     }
 }
 
@@ -336,8 +360,7 @@ private fun ShizukuCard(state: Shiz, onClick: () -> Unit) {
                 )
                 Text(
                     when (state) {
-                        Shiz.Ready -> "Only needed while applying. Nothing runs in the background."
-                        Shiz.NeedsPermission -> "Tap to grant permission"
+                        Shiz.NeedsPermission, Shiz.Ready -> "Tap to grant permission"
                         Shiz.Missing -> "Start it in the Shizuku app, then tap here"
                     },
                     style = MaterialTheme.typography.bodyMedium,
@@ -353,7 +376,7 @@ private fun Preview(bitmap: Bitmap?, onPick: () -> Unit) {
         onClick = onPick,
         shape = RoundedCornerShape(36.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
-        modifier = Modifier.fillMaxWidth().heightIn(max = 460.dp).aspectRatio(0.75f),
+        modifier = Modifier.fillMaxWidth().aspectRatio(0.8f),
     ) {
         AnimatedContent(
             bitmap,
@@ -362,10 +385,13 @@ private fun Preview(bitmap: Bitmap?, onPick: () -> Unit) {
         ) { bmp ->
             if (bmp == null) {
                 Column(Modifier.fillMaxSize(), Arrangement.Center, Alignment.CenterHorizontally) {
+                    val t = rememberInfiniteTransition(label = "spin")
+                    val rot by t.animateFloat(0f, 360f, infiniteRepeatable(tween(14000, easing = LinearEasing)), label = "rot")
                     Box(
-                        Modifier.size(88.dp).clip(RoundedCornerShape(28.dp)).background(MaterialTheme.colorScheme.primaryContainer),
+                        Modifier.size(112.dp).graphicsLayer { rotationZ = rot }
+                            .clip(MaterialShapes.Cookie12Sided.toShape()).background(MaterialTheme.colorScheme.primaryContainer),
                         contentAlignment = Alignment.Center,
-                    ) { Icon(Icons.Rounded.AddPhotoAlternate, null, Modifier.size(40.dp), MaterialTheme.colorScheme.onPrimaryContainer) }
+                    ) { Icon(Icons.Rounded.AddPhotoAlternate, null, Modifier.size(44.dp).graphicsLayer { rotationZ = -rot }, MaterialTheme.colorScheme.onPrimaryContainer) }
                     Spacer(Modifier.height(16.dp))
                     Text("Pick a wallpaper", style = MaterialTheme.typography.titleLarge)
                     Text("Google apps will follow its colors", style = MaterialTheme.typography.bodyMedium,
@@ -385,16 +411,17 @@ private fun Preview(bitmap: Bitmap?, onPick: () -> Unit) {
 
 @Composable
 private fun SeedDot(color: Color, selected: Boolean, onClick: () -> Unit) {
-    val size by animateDpAsState(if (selected) 56.dp else 44.dp, spring(dampingRatio = 0.45f, stiffness = 400f), label = "s")
-    val ring by animateColorAsState(if (selected) MaterialTheme.colorScheme.onSurface else Color.Transparent, label = "r")
-    Box(Modifier.size(60.dp), contentAlignment = Alignment.Center) {
+    val size by animateDpAsState(if (selected) 64.dp else 52.dp, spring(dampingRatio = 0.4f, stiffness = 380f), label = "s")
+    val spin by animateFloatAsState(if (selected) 45f else 0f, spring(dampingRatio = 0.5f, stiffness = 120f), label = "r")
+    val shape = if (selected) MaterialShapes.Cookie9Sided.toShape() else CircleShape
+    Box(Modifier.size(68.dp), contentAlignment = Alignment.Center) {
         Box(
-            Modifier.size(size).clip(CircleShape).border(3.dp, ring, CircleShape).padding(4.dp)
-                .clip(CircleShape).background(color).clickable(onClick = onClick),
+            Modifier.size(size).graphicsLayer { rotationZ = spin }.clip(shape).background(color)
+                .clickable(onClick = onClick),
             contentAlignment = Alignment.Center,
         ) {
             AnimatedVisibility(selected, enter = scaleIn() + fadeIn(), exit = scaleOut() + fadeOut()) {
-                Icon(Icons.Rounded.Check, null, tint = if (color.luminance() > 0.5f) Color.Black else Color.White)
+                Icon(Icons.Rounded.Check, null, Modifier.graphicsLayer { rotationZ = -spin }, tint = if (color.luminance() > 0.5f) Color.Black else Color.White)
             }
         }
     }
@@ -421,12 +448,13 @@ private fun PaletteStrip(seed: Int, dark: Boolean) {
 @Composable
 private fun ApplyButton(state: ApplyState, enabled: Boolean, onClick: () -> Unit) {
     val width by animateDpAsState(
-        if (state == ApplyState.Working) 96.dp else 400.dp, spring(dampingRatio = 0.6f, stiffness = 300f), label = "w",
+        if (state == ApplyState.Working) 120.dp else 1000.dp, spring(dampingRatio = 0.6f, stiffness = 300f), label = "w",
     )
     Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
         Button(
             onClick = onClick, enabled = enabled || state == ApplyState.Working,
-            modifier = Modifier.height(64.dp).width(width),
+            modifier = Modifier.height(64.dp).widthIn(max = width).fillMaxWidth(),
+            shape = if (state == ApplyState.Working) MaterialShapes.Pill.toShape() else RoundedCornerShape(20.dp),
             colors = if (state == ApplyState.Failed) ButtonDefaults.buttonColors(
                 containerColor = MaterialTheme.colorScheme.error,
             ) else ButtonDefaults.buttonColors(),

@@ -1,4 +1,8 @@
 <vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
-    <path android:fillColor="@android:color/system_accent1_200" android:pathData="M54,30a24,24 0,1 1,0 48a24,24 0,1 1,0 -48z"/>
-    <path android:fillColor="@android:color/system_accent3_300" android:pathData="M54,30a24,24 0,0 1,0 48z"/>
+    <!-- frame -->
+    <path android:fillColor="@android:color/system_accent1_600" android:pathData="M38,34h32a6,6 0,0 1,6 6v28a6,6 0,0 1,-6 6h-32a6,6 0,0 1,-6 -6v-28a6,6 0,0 1,6 -6z"/>
+    <!-- hills -->
+    <path android:fillColor="@android:color/system_accent3_200" android:pathData="M32,64l12,-12l10,10l6,-6l16,16v-4a6,6 0,0 1,-6 6h-32a6,6 0,0 1,-6 -6z"/>
+    <!-- sun -->
+    <path android:fillColor="@android:color/system_accent2_100" android:pathData="M62,46m-5,0a5,5 0,1 1,10 0a5,5 0,1 1,-10 0"/>
 </vector>
