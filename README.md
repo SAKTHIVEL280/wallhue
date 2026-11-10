@@ -1,10 +1,34 @@
-# Wallhue — Material You wallpaper colors for Samsung One UI
+<div align="center">
+
+# Wallhue
+
+**Material You wallpaper colors for Google apps on Samsung One UI**
+
+[![Download APK](https://img.shields.io/github/v/release/SAKTHIVEL280/wallhue?label=Download%20APK&style=for-the-badge&color=2e7d6b)](https://github.com/SAKTHIVEL280/wallhue/releases/latest)
+![Android 14+](https://img.shields.io/badge/Android-14%2B-3DDC84?style=for-the-badge&logo=android&logoColor=white)
+![No root](https://img.shields.io/badge/No-root-555?style=for-the-badge)
+![License MIT](https://img.shields.io/badge/License-MIT-blue?style=for-the-badge)
+
+![Wallhue](docs/banner.png)
+
+</div>
+
 
 **Pick a wallpaper, tap Apply, and Google / stock Android apps instantly follow its Material You colors.**
 No root. Nothing running in the background. Works on Samsung Galaxy phones with One UI (Android 14+).
 
 Wallhue is a free, open-source alternative to always-on color tools: it sets your wallpaper, extracts
 the best seed colors from it, and hands them to Android's own Material You (Monet) engine — only when you tap Apply.
+
+## Screenshots
+
+| Pick a wallpaper | Choose a color | See the palette | Applied |
+|:---:|:---:|:---:|:---:|
+| <img src="docs/screenshots/1-home.png" width="200"> | <img src="docs/screenshots/2-picked.png" width="200"> | <img src="docs/screenshots/4-teal.png" width="200"> | <img src="docs/screenshots/6-applied.png" width="200"> |
+
+| Expressive loading | One-time setup info | Safe reset |
+|:---:|:---:|:---:|
+| <img src="docs/screenshots/5-applying.png" width="200"> | <img src="docs/screenshots/7-info.png" width="200"> | <img src="docs/screenshots/8-reset.png" width="200"> |
 
 ## Features
 - 🎨 **Wallpaper-based Material You colors** for Google apps (Messages, Phone, Clock, Photos, Gboard…)

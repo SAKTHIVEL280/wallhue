@@ -531,7 +531,7 @@ private fun ApplyButton(state: ApplyState, enabled: Boolean, onClick: () -> Unit
         Button(
             onClick = onClick, enabled = enabled || state == ApplyState.Working,
             modifier = Modifier.height(64.dp).widthIn(max = width).fillMaxWidth(),
-            shape = if (state == ApplyState.Working) MaterialShapes.Pill.toShape() else RoundedCornerShape(20.dp),
+            shape = RoundedCornerShape(if (state == ApplyState.Working) 32.dp else 20.dp),
             colors = if (state == ApplyState.Failed) ButtonDefaults.buttonColors(
                 containerColor = MaterialTheme.colorScheme.error,
             ) else ButtonDefaults.buttonColors(),
