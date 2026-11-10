@@ -6,6 +6,7 @@ import android.graphics.Bitmap
 import android.graphics.ImageDecoder
 import android.net.Uri
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -68,6 +69,12 @@ import androidx.compose.material.icons.rounded.Link
 import androidx.compose.material.icons.rounded.LinkOff
 import androidx.compose.material.icons.rounded.Restore
 import androidx.compose.material3.Button
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -113,12 +120,22 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import rikka.shizuku.Shizuku
+import androidx.lifecycle.compose.LifecycleResumeEffect
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent { App() }
+        // Debug: adb shell am start -n dev.fl3xy.wallhue/.MainActivity --ei seed 0xff3a7d44 [--ez reset true]
+        if (savedInstanceState == null && BuildConfig.DEBUG && (intent.hasExtra("seed") || intent.hasExtra("reset"))) {
+            Thread {
+                runCatching {
+                    if (intent.getBooleanExtra("reset", false)) ThemeEngine.resetColors(this)
+                    else ThemeEngine.applyColors(this, intent.getIntExtra("seed", 0))
+                }.onSuccess { Log.i("Wallhue", "debug op ok") }.onFailure { Log.e("Wallhue", "debug op failed", it) }
+            }.start()
+        }
     }
 }
 
@@ -203,6 +220,12 @@ private fun App() {
     var applyState by remember { mutableStateOf(ApplyState.Idle) }
     var error by remember { mutableStateOf<String?>(null) }
     val (shiz, onShizuku) = rememberShizukuState()
+    var granted by remember { mutableStateOf(ThemeEngine.canWrite(context)) }
+    LifecycleResumeEffect(Unit) { granted = ThemeEngine.canWrite(context); onPauseOrDispose {} }
+    var granting by remember { mutableStateOf(false) }
+    var showInfo by remember { mutableStateOf(false) }
+    var showReset by remember { mutableStateOf(false) }
+    val snackbar = remember { SnackbarHostState() }
 
     val seed = seeds.getOrElse(selected) { seeds.first() }
 
@@ -233,16 +256,18 @@ private fun App() {
                                 else -> WallpaperManager.FLAG_SYSTEM or WallpaperManager.FLAG_LOCK
                             }
                             ThemeEngine.setWallpaper(context, bmp, flags)
-                            ThemeEngine.applyColors(seed)
+                            ThemeEngine.applyColors(context, seed)
                         }
                     }
                     applyState = if (r.isSuccess) ApplyState.Done else ApplyState.Failed
                     error = r.exceptionOrNull()?.let { (it.cause ?: it).message ?: it.javaClass.simpleName }
+                    if (r.isSuccess) snackbar.showSnackbar("Done. Reopen Google apps to see the new colors.")
                 }
             }
         }
         val pick = { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }
         Scaffold(
+            snackbarHost = { SnackbarHost(snackbar) },
             containerColor = MaterialTheme.colorScheme.surface,
             bottomBar = {
                 Column(
@@ -253,7 +278,7 @@ private fun App() {
                     AnimatedVisibility(error != null) {
                         Text(error.orEmpty(), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                     }
-                    ApplyButton(applyState, bitmap != null && shiz == Shiz.Ready && applyState != ApplyState.Working, applyAction)
+                    ApplyButton(applyState, bitmap != null && granted && applyState != ApplyState.Working, applyAction)
                 }
             },
         ) { pad ->
@@ -263,18 +288,9 @@ private fun App() {
                     .padding(horizontal = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(20.dp),
             ) {
-                Header(
-                    shiz, onShizuku,
-                    onReset = {
-                        scope.launch {
-                            val r = withContext(Dispatchers.IO) { runCatching { ThemeEngine.resetColors() } }
-                            error = r.exceptionOrNull()?.let { (it.cause ?: it).message }
-                            applyState = ApplyState.Idle
-                        }
-                    },
-                )
-                AnimatedVisibility(shiz != Shiz.Ready, enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
-                    ShizukuCard(shiz, onShizuku)
+                Header(granted, onStatus = { showInfo = true }, onReset = { showReset = true })
+                AnimatedVisibility(!granted, enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
+                    SetupCard { showInfo = true }
                 }
                 Preview(bitmap, pick)
                 AnimatedVisibility(bitmap != null, enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
@@ -302,28 +318,108 @@ private fun App() {
         }
     }
 
+    if (showInfo) {
+        ModalBottomSheet(onDismissRequest = { showInfo = false }) {
+            Column(Modifier.padding(horizontal = 24.dp).padding(bottom = 32.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(if (granted) "Ready" else "One-time setup", style = MaterialTheme.typography.headlineSmall)
+                Text(
+                    "Wallhue changes app colors through Android's own Material You engine. That needs a " +
+                        "system permission you grant once. It stays after reboots, and nothing runs in the background.",
+                    style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                if (granted) {
+                    Text("Permission granted. You're all set.", style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.primary)
+                } else {
+                    Text("Option 1 · Shizuku", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        when (shiz) {
+                            Shiz.Ready -> "Shizuku is connected."
+                            Shiz.NeedsPermission -> "Shizuku is running. Allow Wallhue to use it."
+                            Shiz.Missing -> "Start Shizuku first (Wireless debugging), then come back."
+                        },
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Button(
+                        enabled = shiz != Shiz.Missing && !granting,
+                        onClick = {
+                            if (shiz == Shiz.NeedsPermission) onShizuku() else {
+                                granting = true
+                                scope.launch {
+                                    val r = withContext(Dispatchers.IO) { runCatching { ThemeEngine.grantWithShizuku() } }
+                                    granting = false
+                                    granted = ThemeEngine.canWrite(context)
+                                    if (granted) showInfo = false
+                                    snackbar.showSnackbar(if (granted) "Setup complete" else "Grant failed: ${r.exceptionOrNull()?.message}")
+                                }
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(when {
+                            granting -> "Granting…"
+                            shiz == Shiz.NeedsPermission -> "Allow Shizuku access"
+                            else -> "Grant with Shizuku"
+                        })
+                    }
+                    Text("Option 2 · Computer (adb)", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        "adb shell pm grant dev.fl3xy.wallhue android.permission.WRITE_SECURE_SETTINGS",
+                        style = MaterialTheme.typography.bodySmall,
+                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                        modifier = Modifier.clip(RoundedCornerShape(12.dp))
+                            .background(MaterialTheme.colorScheme.surfaceContainerHighest).padding(12.dp),
+                    )
+                }
+            }
+        }
+    }
+    if (showReset) {
+        AlertDialog(
+            onDismissRequest = { showReset = false },
+            icon = { Icon(Icons.Rounded.Restore, null) },
+            title = { Text("Reset app colors?") },
+            text = { Text("Removes Wallhue's colors so Google apps go back to the system default. Your wallpaper stays.") },
+            confirmButton = {
+                Button(onClick = {
+                    showReset = false
+                    scope.launch {
+                        val r = withContext(Dispatchers.IO) { runCatching { ThemeEngine.resetColors(context) } }
+                        error = r.exceptionOrNull()?.let { (it.cause ?: it).message ?: it.javaClass.simpleName }
+                        applyState = ApplyState.Idle
+                        snackbar.showSnackbar(if (r.isSuccess) "Colors reset" else r.exceptionOrNull()?.message ?: "Reset failed")
+                    }
+                }) { Text("Reset") }
+            },
+            dismissButton = { TextButton(onClick = { showReset = false }) { Text("Cancel") } },
+        )
+    }
+
     LaunchedEffect(applyState) {
         if (applyState == ApplyState.Done || applyState == ApplyState.Failed) { delay(2600); applyState = ApplyState.Idle }
     }
 }
 
 @Composable
-private fun Header(state: Shiz, onShizuku: () -> Unit, onReset: () -> Unit) {
+private fun Header(ready: Boolean, onStatus: () -> Unit, onReset: () -> Unit) {
     Row(Modifier.fillMaxWidth().padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
             Text("Wallhue", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold)
             Text("Wallpaper colors for stock apps", style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        val ready = state == Shiz.Ready
-        val dot by animateColorAsState(
-            if (ready) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error, label = "d",
-        )
-        FilledTonalIconButton(onClick = onShizuku) {
-            Box(Modifier.size(12.dp).clip(CircleShape).background(dot))
+        FilledTonalIconButton(onClick = onReset, enabled = ready) {
+            Icon(Icons.Rounded.Restore, "Reset app colors")
         }
-        FilledTonalIconButton(onClick = onReset, enabled = ready) { Icon(Icons.Rounded.Restore, "Reset app colors") }
     }
+    val dot by animateColorAsState(if (ready) Color(0xFF4CAF50) else MaterialTheme.colorScheme.error, label = "d")
+    AssistChip(
+        onClick = onStatus,
+        label = { AnimatedContent(ready, label = "chip") { Text(if (it) "Ready · tap for info" else "Setup needed · tap") } },
+        leadingIcon = { Box(Modifier.size(10.dp).clip(CircleShape).background(dot)) },
+        trailingIcon = { Icon(Icons.Rounded.Info, null, Modifier.size(18.dp)) },
+        shape = CircleShape,
+    )
 }
 
 @Composable
@@ -335,36 +431,17 @@ private fun Section(title: String, content: @Composable () -> Unit) {
 }
 
 @Composable
-private fun ShizukuCard(state: Shiz, onClick: () -> Unit) {
-    val ready = state == Shiz.Ready
-    val container by animateColorAsState(
-        if (ready) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.tertiaryContainer, label = "sc",
-    )
+private fun SetupCard(onClick: () -> Unit) {
     Card(
         onClick = onClick, shape = RoundedCornerShape(28.dp),
-        colors = CardDefaults.cardColors(containerColor = container),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer),
     ) {
         Row(Modifier.fillMaxWidth().padding(20.dp), verticalAlignment = Alignment.CenterVertically) {
-            AnimatedContent(ready, transitionSpec = { scaleIn() + fadeIn() togetherWith scaleOut() + fadeOut() }, label = "si") {
-                Icon(if (it) Icons.Rounded.Link else Icons.Rounded.LinkOff, null)
-            }
+            Icon(Icons.Rounded.LinkOff, null)
             Spacer(Modifier.width(16.dp))
             Column {
-                Text(
-                    when (state) {
-                        Shiz.Ready -> "Shizuku connected"
-                        Shiz.NeedsPermission -> "Allow Shizuku access"
-                        Shiz.Missing -> "Shizuku not running"
-                    },
-                    style = MaterialTheme.typography.titleMedium,
-                )
-                Text(
-                    when (state) {
-                        Shiz.NeedsPermission, Shiz.Ready -> "Tap to grant permission"
-                        Shiz.Missing -> "Start it in the Shizuku app, then tap here"
-                    },
-                    style = MaterialTheme.typography.bodyMedium,
-                )
+                Text("One-time setup needed", style = MaterialTheme.typography.titleMedium)
+                Text("Tap to let Wallhue change app colors", style = MaterialTheme.typography.bodyMedium)
             }
         }
     }
