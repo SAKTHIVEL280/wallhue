@@ -1,0 +1,21 @@
+[versions]
+agp = "9.5.0"
+kotlin = "2.4.21"
+bom = "2026.09.00"
+shizuku = "13.1.5"
+
+[libraries]
+compose-bom = { module = "androidx.compose:compose-bom", version.ref = "bom" }
+material3 = { module = "androidx.compose.material3:material3", version = "1.5.0-rc01" }
+icons = { module = "androidx.compose.material:material-icons-extended" }
+ui = { module = "androidx.compose.ui:ui" }
+activity-compose = { module = "androidx.activity:activity-compose", version = "1.13.0" }
+core-ktx = { module = "androidx.core:core-ktx", version = "1.18.0" }
+material = { module = "com.google.android.material:material", version = "1.13.0" }
+shizuku-api = { module = "dev.rikka.shizuku:api", version.ref = "shizuku" }
+shizuku-provider = { module = "dev.rikka.shizuku:provider", version.ref = "shizuku" }
+hiddenapibypass = { module = "org.lsposed.hiddenapibypass:hiddenapibypass", version = "6.1" }
+
+[plugins]
+android-application = { id = "com.android.application", version.ref = "agp" }
+compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
